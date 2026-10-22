@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HyperResize // CYBERPUNK EDITION</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="header-inner">
+        <div class="logo-area">
+          <!-- macOS Traffic lights (visible in macOS theme) -->
+          <div class="macos-traffic-lights" id="macos-header-lights" aria-hidden="true">
+            <span class="tl-dot tl-red" title="Close"></span>
+            <span class="tl-dot tl-yellow" title="Minimize"></span>
+            <span class="tl-dot tl-green" title="Zoom"></span>
+          </div>
+          <div class="app-icon" id="app-logo-icon">
+            <svg viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <div class="title-group">
+            <h1 id="app-title">// HYPER_RESIZE // [CYBER_EDITION]</h1>
+            <p id="app-subtitle">// GPU_TEXTURE_PIPELINE :: MULTI_THREAD_CORE_ENGINE :: MEMORY_FIREWALL</p>
+          </div>
+        </div>
+
+        <div class="header-controls">
+          <!-- Theme Switcher -->
+          <div class="theme-switcher-wrapper">
+            <div class="theme-switcher" id="theme-switcher" role="radiogroup" aria-label="テーマ選択">
+              <button type="button" class="theme-pill-btn active" data-theme="cyberpunk" title="サイバーパンク HUDスタイル">
+                <span class="theme-icon">⚡</span>
+                <span class="theme-label">Cyberpunk</span>
+              </button>
+              <button type="button" class="theme-pill-btn" data-theme="macos" title="Apple Modern ホワイト＆リッチガラスモーフィズム">
+                <span class="theme-icon">🍏</span>
+                <span class="theme-label">Modern</span>
+              </button>
+              <button type="button" class="theme-pill-btn" data-theme="simple-modern" title="ブルー系シンプルモダン">
+                <span class="theme-icon">🔷</span>
+                <span class="theme-label">Simple Blue</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="hw-badges">
+            <div class="hw-badge cpu" id="cpu-badge">
+              <span class="pulse-dot"></span> 🧠 CPU: [DETECTING...]
+            </div>
+            <div class="hw-badge gpu" id="gpu-badge">
+              <span class="pulse-dot"></span> 🚀 GPU: [DETECTING...]
+            </div>
+            <div class="hw-badge ram" id="ram-badge">
+              <span class="pulse-dot"></span> 💾 RAM: [MEASURING...]
+            </div>
+            <div class="hw-badge status" id="status-badge">
+              <span class="pulse-dot"></span> ⚡ SYS: STANDBY
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Hardware Monitor Dashboard -->
+    <section class="monitor-panel">
+      <div class="monitor-header">
+        <div class="monitor-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+          CPU PARALLEL HUD & TELEMETRY
+        </div>
+        <div class="stats-summary">
+          <div>PROCESSED: <strong id="stat-processed">0 PACKETS</strong></div>
+          <div>DATA_SAVED: <strong id="stat-saved">0 B</strong></div>
+          <div>SPEED: <strong id="stat-speed">---</strong></div>
+        </div>
+      </div>
+
+      <!-- Memory Usage Monitor Bar -->
+      <div class="memory-monitor">
+        <div class="memory-meta">
+          <span class="mem-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 19v-3M10 19v-3M14 19v-3M18 19v-3M6 5v3M10 5v3M14 5v3M18 5v3M2 8h20v8H2z"></path>
+            </svg>
+            RAM_USAGE: <strong id="mem-used-val">---</strong> / <span id="mem-limit-val">1024 MB</span>
+          </span>
+          <span class="mem-percent" id="mem-percent-val">0%</span>
+        </div>
+        <div class="memory-track">
+          <div class="memory-fill" id="mem-fill-bar"></div>
+        </div>
+        <div class="memory-alert" id="mem-alert" style="display: none;">
+          ⚠️ [WARNING: MEMORY_SPIKE] 85%閾値超過：自動スロットリング待機中（GC解放待機）
+        </div>
+      </div>
+
+      <!-- GPU VRAM Monitor Bar (GPUビデオメモリパイプライン) -->
+      <div class="memory-monitor vram-monitor">
+        <div class="memory-meta">
+          <span class="mem-title vram-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+              <rect x="9" y="9" width="6" height="6"></rect>
+              <line x1="9" y1="1" x2="9" y2="4"></line>
+              <line x1="15" y1="1" x2="15" y2="4"></line>
+              <line x1="9" y1="20" x2="9" y2="23"></line>
+              <line x1="15" y1="20" x2="15" y2="23"></line>
+              <line x1="20" y1="9" x2="23" y2="9"></line>
+              <line x1="20" y1="14" x2="23" y2="14"></line>
+              <line x1="1" y1="9" x2="4" y2="9"></line>
+              <line x1="1" y1="14" x2="4" y2="14"></line>
+            </svg>
+            GPU_VRAM_PIPELINE: <strong id="vram-used-val">0 MB</strong> / <span id="vram-pool-val">ACTIVE (TEXTURE_POOL)</span>
+          </span>
+          <span class="mem-percent vram-percent" id="vram-percent-val">ONLINE</span>
+        </div>
+        <div class="memory-track vram-track">
+          <div class="memory-fill vram-fill" id="vram-fill-bar" style="width: 100%;"></div>
+        </div>
+      </div>
+
+      <div class="worker-grid" id="worker-grid">
+        <!-- Worker Core Boxes are generated dynamically -->
+      </div>
+    </section>
+
+    <!-- Settings Card -->
+    <section class="settings-card">
+      <div class="settings-grid">
+        <!-- Section 1: 目標ファイルサイズ設定 -->
+        <div class="setting-section">
+          <div class="section-label">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            // 01. TARGET_CAPACITY
+          </div>
+          <div class="section-subtext">指定容量以下に収まる最高画質・解像度を自動二分探索で調整</div>
+          <div class="pill-group">
+            <button class="pill-btn size-pill" data-size="300kb">300 KB以下</button>
+            <button class="pill-btn size-pill" data-size="500kb">500 KB以下</button>
+            <button class="pill-btn size-pill active" data-size="1mb">1 MB以下 (推奨)</button>
+            <button class="pill-btn size-pill" data-size="2mb">2 MB以下</button>
+            <button class="pill-btn size-pill" data-size="5mb">5 MB以下</button>
+            <button class="pill-btn size-pill" data-size="custom">カスタム</button>
+            <button class="pill-btn size-pill" data-size="none">無制限</button>
+          </div>
+          <div class="input-row" id="custom-size-container" style="display: none;">
+            <input type="number" class="input-box" id="custom-size-val" value="1.0" step="0.1" min="0.1" style="width: 100px; min-width: 0;">
+            <select class="input-select" id="custom-size-unit" style="min-width: 0;">
+              <option value="mb">MB 以下</option>
+              <option value="kb">KB 以下</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Section 2: 出力フォーマット & 解像度 -->
+        <div class="setting-section">
+          <div class="section-label">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+            // 02. ENCODING_MATRIX
+          </div>
+          <div class="input-row">
+            <select class="input-select" id="format-select" style="flex: 1;">
+              <option value="image/webp" selected>WebP（高圧縮・超軽量推奨）</option>
+              <option value="image/jpeg">JPEG（標準写真向け）</option>
+              <option value="image/png">PNG（ロスレス可逆）</option>
+            </select>
+          </div>
+          <div class="pill-group">
+            <button class="pill-btn dim-pill active" data-width="0">元解像度維持</button>
+            <button class="pill-btn dim-pill" data-width="1920">FHD (1920)</button>
+            <button class="pill-btn dim-pill" data-width="1280">HD (1280)</button>
+            <button class="pill-btn dim-pill" data-width="3840">4K (3840)</button>
+          </div>
+          <div class="input-row">
+            <input type="number" class="input-box" id="max-width-input" placeholder="幅 W (px)" style="flex: 1; min-width: 0;">
+            <span style="color:var(--cyber-cyan); font-weight:700; flex-shrink: 0; padding: 0 2px;">×</span>
+            <input type="number" class="input-box" id="max-height-input" placeholder="高 H (px)" style="flex: 1; min-width: 0;">
+          </div>
+        </div>
+
+        <!-- Section 3: 出力先フォルダ & 自動保存 -->
+        <div class="setting-section">
+          <div class="section-label">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+            // 03. DESTINATION_VECTOR
+          </div>
+          <div class="folder-picker-box">
+            <button type="button" class="btn-select-folder" id="btn-pick-dir">
+              📁 出力先フォルダを選択
+            </button>
+            <div class="folder-current" id="selected-dir-display">
+              <span class="folder-path-none">未選択（ZIPまたは個別DL）</span>
+            </div>
+            <label class="toggle-row">
+              <div class="toggle-switch">
+                <input type="checkbox" id="auto-save-toggle">
+                <span class="slider"></span>
+              </div>
+              <span class="toggle-label">⚡ 画像追加時に自動保存 (AUTO-WRITE)</span>
+            </label>
+          </div>
+          <div class="input-row">
+            <span style="font-size: 0.8rem; color: var(--text-muted); font-family:var(--font-mono); flex-shrink: 0;">SUFFIX:</span>
+            <input type="text" class="input-box" id="suffix-input" value="_resized" style="width: 120px; min-width: 0;">
+          </div>
+        </div>
+
+        <!-- Section 4: メモリ使用上限 & 負荷制御 -->
+        <div class="setting-section">
+          <div class="section-label">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 19v-3M10 19v-3M14 19v-3M18 19v-3M6 5v3M10 5v3M14 5v3M18 5v3M2 8h20v8H2z"></path>
+            </svg>
+            // 04. MEMORY_FIREWALL
+          </div>
+          <div class="section-subtext">ブラウザのメモリ枯渇を防ぎ、安定した大量処理を維持</div>
+          <div class="pill-group">
+            <button class="pill-btn mem-pill" data-mem="512">512 MB</button>
+            <button class="pill-btn mem-pill active" data-mem="1024">1 GB (標準)</button>
+            <button class="pill-btn mem-pill" data-mem="2048">2 GB</button>
+            <button class="pill-btn mem-pill" data-mem="4096">4 GB</button>
+            <button class="pill-btn mem-pill" data-mem="custom">カスタム</button>
+            <button class="pill-btn mem-pill" data-mem="0">無制限</button>
+          </div>
+          <!-- カスタムメモリ設定バー -->
+          <div class="custom-mem-panel" id="custom-mem-container" style="display: none;">
+            <div class="custom-mem-header">
+              <span class="custom-mem-title">// RAM_THROTTLE_LIMIT //</span>
+              <span class="custom-mem-badge" id="custom-mem-badge">1024 MB (1.0 GB)</span>
+            </div>
+            <div class="custom-mem-slider-row">
+              <input type="range" class="cyber-range-slider" id="custom-mem-slider" min="256" max="8192" step="64" value="1024">
+            </div>
+            <div class="custom-mem-ticks">
+              <span class="mem-tick" data-val="256">256MB</span>
+              <span class="mem-tick" data-val="1024">1GB</span>
+              <span class="mem-tick" data-val="2048">2GB</span>
+              <span class="mem-tick" data-val="4096">4GB</span>
+              <span class="mem-tick" data-val="8192">8GB</span>
+            </div>
+            <div class="custom-mem-input-row">
+              <span style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap;">直接入力:</span>
+              <input type="number" class="input-box" id="custom-mem-val" value="1024" step="64" min="128" max="16384" style="width: 85px; height: 26px; font-size: 0.8rem; padding: 2px 6px;">
+              <span style="font-size: 0.75rem; color: var(--cyber-cyan); font-family: var(--font-mono); white-space: nowrap;">MB LIMIT</span>
+            </div>
+          </div>
+          <div class="input-row">
+            <span style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; font-family:var(--font-mono); flex-shrink: 0;">MAX THREADS:</span>
+            <select class="input-select" id="concurrency-select" style="flex: 1; min-width: 0;">
+              <option value="0">自動 (全コアフル稼働)</option>
+              <option value="2">2 スレッド (低メモリ)</option>
+              <option value="4" selected>4 スレッド (標準)</option>
+              <option value="8">8 スレッド (高速)</option>
+            </select>
+          </div>
+          <label class="toggle-row">
+            <div class="toggle-switch">
+              <input type="checkbox" id="ultra-saver-toggle" checked>
+              <span class="slider"></span>
+            </div>
+            <span class="toggle-label" style="font-size: 0.8rem;">⚡ 超省メモリ (保存後Blob即時解放)</span>
+          </label>
+          <label class="toggle-row">
+            <div class="toggle-switch">
+              <input type="checkbox" id="gpu-vram-toggle" checked>
+              <span class="slider"></span>
+            </div>
+            <span class="toggle-label" style="font-size: 0.8rem; color: var(--cyber-magenta);">🚀 GPU VRAM オフロード (GPUメモリ優先パイプライン)</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Drop Zone -->
+    <section class="dropzone" id="dropzone">
+      <div class="dropzone-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+      </div>
+      <div class="dropzone-title">// DROP RAW ASSETS HERE //</div>
+      <div class="dropzone-sub">ドラッグ＆ドロップまたは選択後に「スタート」ボタンで一括リサイズ / フォルダ一括投入 / CLIPBOARD (Ctrl+V) READY</div>
+      <div class="dropzone-buttons">
+        <button type="button" class="btn-file" id="btn-select-files">
+          🖼️ SELECT FILES
+        </button>
+        <button type="button" class="btn-file" id="btn-select-folder-input">
+          📁 SELECT FOLDER
+        </button>
+      </div>
+      <input type="file" id="file-input" multiple accept="image/*" style="display: none;">
+      <input type="file" id="folder-input" webkitdirectory directory multiple style="display: none;">
+    </section>
+
+    <!-- Action Bar -->
+    <section class="action-bar">
+      <!-- 実行制御ボタン (スタート & 停止 横並び配置) -->
+      <div class="exec-buttons-group">
+        <button type="button" class="btn-exec btn-start" id="btn-start-process" disabled>
+          <span class="btn-icon-glow">▶</span> スタート
+        </button>
+        <button type="button" class="btn-exec btn-stop" id="btn-stop-process" disabled>
+          <span class="btn-icon-glow">⏹</span> 停止
+        </button>
+      </div>
+
+      <div class="progress-info">
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="progress-bar-fill"></div>
+        </div>
+        <div class="progress-text" id="progress-text">SYS.STANDBY</div>
+      </div>
+
+      <div class="action-buttons">
+        <button type="button" class="btn-primary" id="btn-save-to-folder" disabled>
+          💾 フォルダへ一括保存
+        </button>
+        <button type="button" class="btn-secondary" id="btn-download-zip" disabled>
+          📦 ZIP一括ダウンロード
+        </button>
+        <button type="button" class="btn-danger" id="btn-clear-list">
+          🗑️ リストクリア
+        </button>
+      </div>
+    </section>
+
+    <!-- Results List -->
+    <section class="results-list" id="results-list">
+      <!-- Image Result Cards will be rendered here dynamically -->
+    </section>
+  </div>
+
+  <!-- Comparison Modal -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal-container">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="macos-traffic-lights modal-tl" aria-hidden="true">
+            <span class="tl-dot tl-red" onclick="closeModal()" title="閉じる"></span>
+            <span class="tl-dot tl-yellow" title="最小化"></span>
+            <span class="tl-dot tl-green" onclick="zoomToFit()" title="全体表示"></span>
+          </div>
+          <div class="modal-title" id="modal-title">// OPTICAL_DIFF_ANALYZER //</div>
+        </div>
+        <button type="button" class="btn-icon" id="modal-close" style="width: 32px; height: 32px;" title="閉じる">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- ズームコントロールツールバー -->
+        <div class="comp-toolbar">
+          <div class="comp-toolbar-left">
+            <button type="button" class="btn-zoom-ctrl" id="btn-zoom-out" title="縮小 (マウスホイール下)">🔍−</button>
+            <button type="button" class="btn-zoom-ctrl" id="btn-zoom-in" title="拡大 (クリックまたはホイール上)">🔍＋</button>
+            <button type="button" class="btn-zoom-ctrl active" id="btn-zoom-fit" title="画面サイズに合わせて全体表示">↔️ 全体表示 (FIT)</button>
+            <button type="button" class="btn-zoom-ctrl" id="btn-zoom-100" title="1:1 ピクセル等倍表示 (細部確認)">1:1 等倍 (100%)</button>
+            <button type="button" class="btn-zoom-ctrl" id="btn-zoom-200" title="200% 拡大表示">200%</button>
+            <span class="comp-zoom-badge" id="comp-zoom-badge">FIT</span>
+          </div>
+          <div class="comp-toolbar-right">
+            <span class="comp-toolbar-guide">💡 画像クリックで拡大 / ドラッグで視点移動 / ホイールでズーム</span>
+          </div>
+        </div>
+
+        <!-- 比較ビューポート (拡大・パン・分割対応) -->
+        <div class="comparison-wrapper" id="comparison-wrapper">
+          <!-- ベースステージ: リサイズ後画像 (OPTIMIZED) -->
+          <div class="comp-stage comp-stage-base" id="comp-stage-base">
+            <img id="orig-img" src="" alt="Resized" draggable="false">
+          </div>
+
+          <!-- オーバーレイステージ: 元画像 (ORIGINAL) クリップコンテナ -->
+          <div class="comparison-overlay-img" id="comp-overlay">
+            <div class="comp-stage comp-stage-overlay" id="comp-stage-overlay">
+              <img id="comp-img" src="" alt="Original" draggable="false">
+            </div>
+          </div>
+
+          <!-- 分割ディバイダーライン & ドラッグハンドル -->
+          <div class="comp-divider-line" id="comp-divider-line">
+            <div class="comp-divider-handle" id="comp-divider-handle" title="ドラッグして比較位置を調整">
+              <span>◄►</span>
+            </div>
+          </div>
+
+          <!-- 浮動ラベル -->
+          <div class="comp-floating-tag tag-orig">◄ ORIGINAL (元画像)</div>
+          <div class="comp-floating-tag tag-opt">OPTIMIZED (リサイズ後) ►</div>
+          <div class="comp-zoom-hint" id="comp-zoom-hint">🔍 クリックで拡大</div>
+        </div>
+
+        <input type="range" class="comparison-slider-bar" id="comp-slider" min="0" max="100" value="50">
+        <div style="display: flex; justify-content: space-between; width: 100%; font-size: 0.85rem; font-family:var(--font-mono);">
+          <div id="modal-orig-info" style="color: var(--cyber-magenta);">ORIGINAL</div>
+          <div id="modal-comp-info" style="color: var(--cyber-cyan);">OPTIMIZED</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript -->
+  <script src="zip-utils.js"></script>
+  <script src="gpu-resizer.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
