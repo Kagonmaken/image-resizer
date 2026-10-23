@@ -729,8 +729,12 @@ header {
 
 .toggle-switch {
   position: relative;
+  display: inline-block;
   width: 44px;
   height: 22px;
+  min-width: 44px;
+  min-height: 22px;
+  flex-shrink: 0;
 }
 
 .toggle-switch input {
@@ -746,6 +750,8 @@ header {
   background-color: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(0, 240, 255, 0.3);
   transition: .25s;
+  overflow: hidden;
+  box-sizing: border-box;
   clip-path: polygon(0 0, calc(100% - 4px) 0, 100% 4px, 100% 100%, 4px 100%, 0 calc(100% - 4px));
 }
 
@@ -773,6 +779,9 @@ input:checked + .slider:before {
 }
 
 .toggle-label {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
   font-family: var(--font-mono);
   font-size: 0.82rem;
   color: var(--text-main);
@@ -1313,6 +1322,103 @@ button:disabled {
   align-items: center;
 }
 
+/* 前後比較サマリーバナー */
+.comp-summary-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px;
+  background: rgba(5, 8, 17, 0.85);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  box-sizing: border-box;
+}
+
+.comp-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.comp-summary-badge {
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  border-radius: 4px;
+}
+
+.comp-summary-badge.orig-badge {
+  background: rgba(255, 0, 127, 0.2);
+  border: 1px solid var(--cyber-magenta);
+  color: #ff99cc;
+}
+
+.comp-summary-badge.opt-badge {
+  background: rgba(0, 240, 255, 0.2);
+  border: 1px solid var(--cyber-cyan);
+  color: #99f7ff;
+}
+
+.comp-summary-val {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.comp-summary-arrow {
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--cyber-cyan);
+}
+
+.comp-summary-diff {
+  padding: 4px 12px;
+  background: rgba(0, 255, 102, 0.16);
+  border: 1px solid var(--cyber-green);
+  color: var(--cyber-green);
+  font-weight: 800;
+  font-size: 0.8rem;
+  border-radius: 6px;
+}
+
+/* 比較モード切替タブ */
+.comp-mode-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-comp-mode {
+  background: rgba(10, 15, 29, 0.9);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  color: var(--text-muted);
+  padding: 6px 13px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border-radius: 6px;
+}
+
+.btn-comp-mode:hover {
+  color: var(--text-main);
+  border-color: var(--cyber-cyan);
+  background: rgba(0, 240, 255, 0.12);
+}
+
+.btn-comp-mode.active {
+  background: var(--cyber-cyan);
+  border-color: var(--cyber-cyan);
+  color: #050811;
+  font-weight: 800;
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.5);
+}
+
 /* ズームコントロール ツールバー */
 .comp-toolbar {
   width: 100%;
@@ -1324,6 +1430,7 @@ button:disabled {
   background: rgba(5, 8, 17, 0.7);
   border: 1px solid rgba(0, 240, 255, 0.2);
   padding: 8px 14px;
+  box-sizing: border-box;
   clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
 }
 
@@ -1421,13 +1528,302 @@ button:disabled {
   pointer-events: none;
 }
 
-.comp-stage img {
+.comp-stage img,
+.comp-stage canvas {
   width: 100%;
   height: 100%;
   object-fit: fill;
   display: block;
   pointer-events: none;
-  image-rendering: auto;
+  image-rendering: pixelated; /* ピクセル補間によるボカシごまかしを防ぎ、解像度・圧縮差を鮮明に表示 */
+}
+
+/* モード3: 差分ヒートマップステージ */
+.comp-diff-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.comp-diff-legend {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(5, 8, 17, 0.92);
+  border: 1px solid rgba(0, 240, 255, 0.45);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: #fff;
+  z-index: 15;
+}
+
+.legend-chip.unchanged { color: #94a3b8; }
+.legend-chip.minor { color: #38bdf8; }
+.legend-chip.major { color: #ff2d55; font-weight: 800; }
+
+/* モード2: 実寸サイズ・並列比較ステージ */
+.comp-actual-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 6;
+  background: radial-gradient(circle at center, #0e172a 0%, #050811 100%);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px 16px 46px 16px;
+  box-sizing: border-box;
+  cursor: default;
+}
+
+.actual-pane {
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 15, 29, 0.75);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.actual-pane.orig-pane {
+  border-color: rgba(255, 0, 127, 0.35);
+}
+
+.actual-pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: rgba(5, 8, 17, 0.85);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.pane-tag {
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.pane-tag.orig {
+  background: rgba(255, 0, 127, 0.2);
+  color: #ff99cc;
+  border: 1px solid var(--cyber-magenta);
+}
+
+.pane-tag.opt {
+  background: rgba(0, 240, 255, 0.2);
+  color: #99f7ff;
+  border: 1px solid var(--cyber-cyan);
+}
+
+.pane-dims {
+  color: #fff;
+  font-weight: 700;
+}
+
+.actual-canvas-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  overflow: hidden;
+  position: relative;
+  /* 透明背景やサイズ差が分かりやすいチェッカーボード風ドットパターン */
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.actual-reference-ghost {
+  border: 2px dashed rgba(255, 0, 127, 0.55);
+  background: rgba(255, 0, 127, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.ghost-label {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: #ff99cc;
+  background: rgba(5, 8, 17, 0.8);
+  padding: 1px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.actual-img-frame {
+  position: relative;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6);
+  box-sizing: border-box;
+}
+
+.actual-img-frame.orig-frame {
+  border: 2px solid var(--cyber-magenta);
+}
+
+.actual-img-frame.opt-frame {
+  border: 2px solid var(--cyber-cyan);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.35);
+}
+
+.actual-img-frame img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: fill;
+  image-rendering: pixelated;
+}
+
+.actual-mode-note {
+  position: absolute;
+  bottom: 8px;
+  left: 16px;
+  right: 16px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: #e2e8f0;
+  background: rgba(5, 8, 17, 0.9);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  padding: 5px 12px;
+  border-radius: 6px;
+}
+
+[data-theme="macos"] .comp-summary-banner {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  font-family: var(--font-sans);
+}
+
+[data-theme="macos"] .comp-summary-val {
+  color: #1d1d1f;
+}
+
+[data-theme="macos"] .comp-summary-badge.orig-badge {
+  background: rgba(255, 45, 85, 0.12);
+  border-color: rgba(255, 45, 85, 0.35);
+  color: #d70040;
+}
+
+[data-theme="macos"] .comp-summary-badge.opt-badge {
+  background: rgba(0, 113, 227, 0.12);
+  border-color: rgba(0, 113, 227, 0.35);
+  color: #0071e3;
+}
+
+[data-theme="macos"] .comp-summary-diff {
+  background: rgba(52, 199, 89, 0.14);
+  border-color: rgba(52, 199, 89, 0.4);
+  color: #1f8b3b;
+}
+
+[data-theme="macos"] .btn-comp-mode {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: #515154;
+  font-family: var(--font-sans);
+  border-radius: 8px;
+}
+
+[data-theme="macos"] .btn-comp-mode.active {
+  background: #0071e3;
+  border-color: #0071e3;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.35);
+}
+
+[data-theme="macos"] .comp-actual-stage {
+  background: radial-gradient(circle at center, #f5f5f7 0%, #e8e8ed 100%);
+}
+
+[data-theme="macos"] .actual-pane {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="macos"] .actual-pane.orig-pane {
+  border-color: rgba(255, 45, 85, 0.35);
+}
+
+[data-theme="macos"] .actual-pane-header {
+  background: #fbfbfd;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  font-family: var(--font-sans);
+}
+
+[data-theme="macos"] .pane-dims {
+  color: #1d1d1f;
+}
+
+[data-theme="macos"] .actual-canvas-box {
+  background-image: radial-gradient(rgba(0, 0, 0, 0.12) 1px, transparent 1px);
+}
+
+[data-theme="macos"] .actual-mode-note {
+  background: rgba(255, 255, 255, 0.94);
+  color: #1d1d1f;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  font-family: var(--font-sans);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="macos"] .comp-diff-legend {
+  background: rgba(255, 255, 255, 0.94);
+  color: #1d1d1f;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  font-family: var(--font-sans);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="simple-modern"] .comp-summary-banner {
+  border-radius: 8px;
+  background: #0d1527;
+  border: 1px solid #1e293b;
+  font-family: var(--font-sans);
+}
+
+[data-theme="simple-modern"] .btn-comp-mode {
+  border-radius: 6px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  font-family: var(--font-sans);
+}
+
+[data-theme="simple-modern"] .btn-comp-mode:hover {
+  color: #f8fafc;
+  border-color: #3b82f6;
+}
+
+[data-theme="simple-modern"] .btn-comp-mode.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
 }
 
 /* オーバーレイクリッパー */
@@ -1786,6 +2182,8 @@ button:disabled {
 [data-theme="macos"] .btn-icon,
 [data-theme="macos"] .modal-container,
 [data-theme="macos"] .comp-toolbar,
+[data-theme="macos"] .comp-summary-banner,
+[data-theme="macos"] .btn-comp-mode,
 [data-theme="macos"] .btn-zoom-ctrl,
 [data-theme="macos"] .comp-zoom-badge,
 [data-theme="macos"] .comp-floating-tag,
@@ -2672,6 +3070,8 @@ button:disabled {
 [data-theme="simple-modern"] .btn-icon,
 [data-theme="simple-modern"] .modal-container,
 [data-theme="simple-modern"] .comp-toolbar,
+[data-theme="simple-modern"] .comp-summary-banner,
+[data-theme="simple-modern"] .btn-comp-mode,
 [data-theme="simple-modern"] .btn-zoom-ctrl,
 [data-theme="simple-modern"] .comp-zoom-badge,
 [data-theme="simple-modern"] .comp-floating-tag,

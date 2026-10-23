@@ -36,7 +36,8 @@ self.onmessage = async function (e) {
       maxHeight = 0,
       mimeType = 'image/jpeg',    // 'image/jpeg', 'image/webp', 'image/png'
       qualityPreset = 0.85,       // 目標サイズ未指定時のデフォルト品質
-      maintainAspectRatio = true
+      maintainAspectRatio = true,
+      gpuVramPipeline = true
     } = options;
 
     // 2. 寸法の算出
@@ -73,12 +74,12 @@ self.onmessage = async function (e) {
     let finalQuality = qualityPreset;
     let iterations = 0;
 
-    // PNGはロスレスのため品質パラメータが効かない点に注意（targetMaxBytesがある場合はWebP/JPEG推奨または寸法縮小）
-    const effectiveMimeType = (targetMaxBytes > 0 && mimeType === 'image/png') ? 'image/webp' : mimeType;
+    // ユーザーが選択した出力フォーマットを厳密に尊重
+    const effectiveMimeType = mimeType;
 
     // GPU VRAM上に元画像テクスチャを1度だけアップロードして常駐（PCIe帯域とRAMを大幅節約）
     let vramTex = null;
-    if (gpuResizerInstance && gpuResizerInstance.gl) {
+    if (gpuVramPipeline && gpuResizerInstance && gpuResizerInstance.gl) {
       try {
         vramTex = gpuResizerInstance.createVRAMTexture(bitmap);
       } catch (e) {
@@ -87,17 +88,23 @@ self.onmessage = async function (e) {
     }
 
     const renderWorkingCanvas = (w, h) => {
-      if (vramTex) {
+      if (gpuVramPipeline && vramTex) {
         const c = gpuResizerInstance.resizeFromVRAM(vramTex, w, h);
         if (c) return c;
       }
-      return renderImageToCanvas(bitmap, w, h);
+      return renderImageToCanvas(bitmap, w, h, gpuVramPipeline);
     };
 
     // 目標データサイズが設定されている場合のバイナリサーチ（二分探索）アルゴリズム
     if (targetMaxBytes > 0) {
       let currentScale = 1.0;
       let targetSatisfied = false;
+      // 元画像がすでに目標容量以下の場合は、無圧縮(93%等)にならず確実に軽量化されるようターゲット上限と最大品質を適正化
+      const isAlreadyUnderTarget = origSize <= targetMaxBytes;
+      const effectiveTargetBytes = isAlreadyUnderTarget
+        ? Math.min(targetMaxBytes, Math.max(4096, Math.floor(origSize * 0.80)))
+        : targetMaxBytes;
+      const maxSearchQuality = isAlreadyUnderTarget ? Math.min(0.82, qualityPreset) : 0.92;
 
       // 解像度スケールループ（品質を下げても入らない場合は解像度を少しずつ落とす）
       for (let scaleAttempt = 0; scaleAttempt < 5; scaleAttempt++) {
@@ -107,9 +114,25 @@ self.onmessage = async function (e) {
         // GPU VRAMからダイレクト描画
         const canvas = renderWorkingCanvas(testWidth, testHeight);
 
+        // PNG（ロスレス可逆）の場合は品質パラメータが無効なため、1回のみエンコードして容量判定
+        if (effectiveMimeType === 'image/png') {
+          iterations++;
+          const pngBlob = await canvasToBlob(canvas, 'image/png', 1.0);
+          if (pngBlob.size <= targetMaxBytes || isAlreadyUnderTarget) {
+            bestBlob = pngBlob;
+            finalWidth = testWidth;
+            finalHeight = testHeight;
+            finalQuality = 1.0;
+            targetSatisfied = true;
+            break;
+          }
+          currentScale *= 0.75;
+          continue;
+        }
+
         // 品質バイナリサーチ
         let lowQ = 0.20;
-        let highQ = 0.95;
+        let highQ = maxSearchQuality;
         let bestUnderTarget = null;
         let bestUnderQ = 0.20;
 
@@ -119,11 +142,11 @@ self.onmessage = async function (e) {
           const midQ = (lowQ + highQ) / 2;
           const blob = await canvasToBlob(canvas, effectiveMimeType, midQ);
 
-          if (blob.size <= targetMaxBytes) {
+          if (blob.size <= effectiveTargetBytes) {
             bestUnderTarget = blob;
             bestUnderQ = midQ;
             // 許容誤差範囲（目標の90%以上）なら即確定
-            if (blob.size >= targetMaxBytes * 0.90) {
+            if (blob.size >= effectiveTargetBytes * 0.90) {
               break;
             }
             // さらに高い品質を狙える
@@ -143,6 +166,16 @@ self.onmessage = async function (e) {
           break;
         }
 
+        // 元画像が既に目標容量以下の場合は解像度縮小までは強制せず標準品質で確定
+        if (isAlreadyUnderTarget) {
+          bestBlob = await canvasToBlob(canvas, effectiveMimeType, Math.min(0.75, qualityPreset));
+          finalWidth = testWidth;
+          finalHeight = testHeight;
+          finalQuality = Math.round(Math.min(0.75, qualityPreset) * 100) / 100;
+          targetSatisfied = true;
+          break;
+        }
+
         // 最小品質でも目標サイズを超えている場合、解像度を75%に縮小して再試行
         currentScale *= 0.75;
       }
@@ -150,19 +183,19 @@ self.onmessage = async function (e) {
       // 万一どの解像度でも入らなかった場合は最後の最小スケールblobを採用
       if (!bestBlob) {
         const fallbackCanvas = renderWorkingCanvas(Math.max(16, Math.round(baseWidth * 0.4)), Math.max(16, Math.round(baseHeight * 0.4)));
-        bestBlob = await canvasToBlob(fallbackCanvas, effectiveMimeType, 0.25);
+        bestBlob = await canvasToBlob(fallbackCanvas, effectiveMimeType, effectiveMimeType === 'image/png' ? 1.0 : 0.25);
         finalWidth = fallbackCanvas.width;
         finalHeight = fallbackCanvas.height;
-        finalQuality = 0.25;
+        finalQuality = effectiveMimeType === 'image/png' ? 1.0 : 0.25;
       }
     } else {
       // 目標サイズ指定なし（通常の解像度・指定品質リサイズ）
       iterations = 1;
       const canvas = renderWorkingCanvas(baseWidth, baseHeight);
-      bestBlob = await canvasToBlob(canvas, effectiveMimeType, qualityPreset);
+      bestBlob = await canvasToBlob(canvas, effectiveMimeType, effectiveMimeType === 'image/png' ? 1.0 : qualityPreset);
       finalWidth = baseWidth;
       finalHeight = baseHeight;
-      finalQuality = qualityPreset;
+      finalQuality = effectiveMimeType === 'image/png' ? 1.0 : qualityPreset;
     }
 
     // GPU VRAMテクスチャとビットマップの安全解放
@@ -208,11 +241,11 @@ self.onmessage = async function (e) {
 /**
  * GPUまたは高速Canvasを用いて画像をリサイズ描画
  */
-function renderImageToCanvas(source, width, height) {
+function renderImageToCanvas(source, width, height, useGpu = true) {
   width = Math.max(1, Math.round(width));
   height = Math.max(1, Math.round(height));
 
-  if (gpuResizerInstance && gpuResizerInstance.gl) {
+  if (useGpu && gpuResizerInstance && gpuResizerInstance.gl) {
     try {
       return gpuResizerInstance.resize(source, width, height);
     } catch (e) {

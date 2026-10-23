@@ -143,7 +143,30 @@ const elements = {
   btnZoom100: document.getElementById('btn-zoom-100'),
   btnZoom200: document.getElementById('btn-zoom-200'),
   compZoomBadge: document.getElementById('comp-zoom-badge'),
-  compZoomHint: document.getElementById('comp-zoom-hint')
+  compZoomHint: document.getElementById('comp-zoom-hint'),
+  compTagOrig: document.getElementById('comp-tag-orig'),
+  compTagOpt: document.getElementById('comp-tag-opt'),
+  summaryOrigText: document.getElementById('summary-orig-text'),
+  summaryOptText: document.getElementById('summary-opt-text'),
+  summaryDiffPill: document.getElementById('summary-diff-pill'),
+  compModeButtons: document.querySelectorAll('.btn-comp-mode'),
+  compZoomControls: document.getElementById('comp-zoom-controls'),
+  compDiffStage: document.getElementById('comp-diff-stage'),
+  compStageDiffInner: document.getElementById('comp-stage-diff-inner'),
+  compDiffCanvas: document.getElementById('comp-diff-canvas'),
+  compDiffStat: document.getElementById('comp-diff-stat'),
+  compActualStage: document.getElementById('comp-actual-stage'),
+  actualOrigDims: document.getElementById('actual-orig-dims'),
+  actualOptDims: document.getElementById('actual-opt-dims'),
+  actualOrigBox: document.getElementById('actual-orig-box'),
+  actualOptBox: document.getElementById('actual-opt-box'),
+  actualOrigFrame: document.getElementById('actual-orig-frame'),
+  actualOptFrame: document.getElementById('actual-opt-frame'),
+  actualRefGhost: document.getElementById('actual-ref-ghost'),
+  actualGhostLabel: document.getElementById('actual-ghost-label'),
+  actualOrigImg: document.getElementById('actual-orig-img'),
+  actualOptImg: document.getElementById('actual-opt-img'),
+  actualModeNote: document.getElementById('actual-mode-note')
 };
 
 // ==========================================
@@ -352,7 +375,7 @@ async function processJobLocally(msg) {
     baseWidth = Math.round(origWidth * ratio);
   }
 
-  const effectiveMimeType = (targetMaxBytes > 0 && mimeType === 'image/png') ? 'image/webp' : mimeType;
+  const effectiveMimeType = mimeType;
   let bestBlob = null;
   let finalWidth = baseWidth;
   let finalHeight = baseHeight;
@@ -360,7 +383,8 @@ async function processJobLocally(msg) {
 
   // GPU VRAM パイプライン (GPUメモリ常駐 & ダイレクト描画)
   let vramTex = null;
-  if (state.gpuResizer && state.gpuResizer.gl && state.settings.gpuVramPipeline) {
+  const useGpuVram = options.gpuVramPipeline !== undefined ? options.gpuVramPipeline : state.settings.gpuVramPipeline;
+  if (state.gpuResizer && state.gpuResizer.gl && useGpuVram) {
     try {
       vramTex = state.gpuResizer.createVRAMTexture(bitmap);
     } catch (e) {
@@ -369,7 +393,7 @@ async function processJobLocally(msg) {
   }
 
   const renderWorkingCanvas = (w, h) => {
-    if (vramTex && state.gpuResizer) {
+    if (useGpuVram && vramTex && state.gpuResizer) {
       const c = state.gpuResizer.resizeFromVRAM(vramTex, w, h);
       if (c) return c;
     }
@@ -384,13 +408,31 @@ async function processJobLocally(msg) {
 
   if (targetMaxBytes > 0) {
     let currentScale = 1.0;
+    const isAlreadyUnderTarget = origSize <= targetMaxBytes;
+    const effectiveTargetBytes = isAlreadyUnderTarget
+      ? Math.min(targetMaxBytes, Math.max(4096, Math.floor(origSize * 0.80)))
+      : targetMaxBytes;
+    const maxSearchQuality = isAlreadyUnderTarget ? Math.min(0.82, qualityPreset) : 0.92;
 
     for (let scaleAttempt = 0; scaleAttempt < 5; scaleAttempt++) {
       const testWidth = Math.max(16, Math.round(baseWidth * currentScale));
       const testHeight = Math.max(16, Math.round(baseHeight * currentScale));
       const workingCanvas = renderWorkingCanvas(testWidth, testHeight);
 
-      let lowQ = 0.20, highQ = 0.95;
+      if (effectiveMimeType === 'image/png') {
+        const pngBlob = await canvasToBlobSafe(workingCanvas, 'image/png', 1.0);
+        if (pngBlob.size <= targetMaxBytes || isAlreadyUnderTarget) {
+          bestBlob = pngBlob;
+          finalWidth = testWidth;
+          finalHeight = testHeight;
+          finalQuality = 1.0;
+          break;
+        }
+        currentScale *= 0.75;
+        continue;
+      }
+
+      let lowQ = 0.20, highQ = maxSearchQuality;
       let bestUnderTarget = null;
       let bestUnderQ = 0.20;
 
@@ -398,10 +440,10 @@ async function processJobLocally(msg) {
         const midQ = (lowQ + highQ) / 2;
         const bRes = await canvasToBlobSafe(workingCanvas, effectiveMimeType, midQ);
 
-        if (bRes.size <= targetMaxBytes) {
+        if (bRes.size <= effectiveTargetBytes) {
           bestUnderTarget = bRes;
           bestUnderQ = midQ;
-          if (bRes.size >= targetMaxBytes * 0.90) break;
+          if (bRes.size >= effectiveTargetBytes * 0.90) break;
           lowQ = midQ;
         } else {
           highQ = midQ;
@@ -416,22 +458,30 @@ async function processJobLocally(msg) {
         break;
       }
 
+      if (isAlreadyUnderTarget) {
+        bestBlob = await canvasToBlobSafe(workingCanvas, effectiveMimeType, Math.min(0.75, qualityPreset));
+        finalWidth = testWidth;
+        finalHeight = testHeight;
+        finalQuality = Math.round(Math.min(0.75, qualityPreset) * 100) / 100;
+        break;
+      }
+
       currentScale *= 0.75;
     }
 
     if (!bestBlob) {
       const fallbackCanvas = renderWorkingCanvas(Math.max(16, Math.round(baseWidth * 0.4)), Math.max(16, Math.round(baseHeight * 0.4)));
-      bestBlob = await canvasToBlobSafe(fallbackCanvas, effectiveMimeType, 0.25);
+      bestBlob = await canvasToBlobSafe(fallbackCanvas, effectiveMimeType, effectiveMimeType === 'image/png' ? 1.0 : 0.25);
       finalWidth = fallbackCanvas.width;
       finalHeight = fallbackCanvas.height;
-      finalQuality = 0.25;
+      finalQuality = effectiveMimeType === 'image/png' ? 1.0 : 0.25;
     }
   } else {
     const workingCanvas = renderWorkingCanvas(baseWidth, baseHeight);
-    bestBlob = await canvasToBlobSafe(workingCanvas, effectiveMimeType, qualityPreset);
+    bestBlob = await canvasToBlobSafe(workingCanvas, effectiveMimeType, effectiveMimeType === 'image/png' ? 1.0 : qualityPreset);
     finalWidth = baseWidth;
     finalHeight = baseHeight;
-    finalQuality = qualityPreset;
+    finalQuality = effectiveMimeType === 'image/png' ? 1.0 : qualityPreset;
   }
 
   // GPU VRAMテクスチャとビットマップ解放
@@ -605,6 +655,15 @@ function setupEventListeners() {
     }
   });
 
+  // カスタムサイズ入力
+  const updateCustomSize = () => {
+    const num = parseFloat(elements.customSizeVal.value) || 1;
+    const unit = elements.customSizeUnit.value;
+    state.settings.targetMaxBytes = Math.round(unit === 'mb' ? num * 1024 * 1024 : num * 1024);
+  };
+  elements.customSizeVal.addEventListener('input', updateCustomSize);
+  elements.customSizeUnit.addEventListener('change', updateCustomSize);
+
   // 目標サイズプリセットボタン
   elements.sizePills.forEach(pill => {
     pill.addEventListener('click', () => {
@@ -615,6 +674,7 @@ function setupEventListeners() {
 
       if (val === 'custom') {
         elements.customSizeContainer.style.display = 'flex';
+        updateCustomSize();
       } else {
         elements.customSizeContainer.style.display = 'none';
         if (val === 'none') {
@@ -634,21 +694,21 @@ function setupEventListeners() {
     });
   });
 
-  // カスタムサイズ入力
-  const updateCustomSize = () => {
-    const num = parseFloat(elements.customSizeVal.value) || 1;
-    const unit = elements.customSizeUnit.value;
-    state.settings.targetMaxBytes = Math.round(unit === 'mb' ? num * 1024 * 1024 : num * 1024);
-  };
-  elements.customSizeVal.addEventListener('input', updateCustomSize);
-  elements.customSizeUnit.addEventListener('change', updateCustomSize);
-
   // 出力フォーマット
   elements.formatSelect.addEventListener('change', (e) => {
     state.settings.mimeType = e.target.value;
   });
 
   // 解像度プリセット
+  const syncDimPillActive = () => {
+    const w = state.settings.maxWidth || 0;
+    const h = state.settings.maxHeight || 0;
+    elements.dimPills.forEach(p => {
+      const pillW = parseInt(p.dataset.width) || 0;
+      p.classList.toggle('active', h === 0 && pillW === w);
+    });
+  };
+
   elements.dimPills.forEach(pill => {
     pill.addEventListener('click', () => {
       elements.dimPills.forEach(p => p.classList.remove('active'));
@@ -663,9 +723,11 @@ function setupEventListeners() {
 
   elements.maxWidthInput.addEventListener('input', (e) => {
     state.settings.maxWidth = parseInt(e.target.value) || 0;
+    syncDimPillActive();
   });
   elements.maxHeightInput.addEventListener('input', (e) => {
     state.settings.maxHeight = parseInt(e.target.value) || 0;
+    syncDimPillActive();
   });
 
 function formatMemoryMb(mb) {
@@ -807,14 +869,41 @@ function updateCustomMemUI(mb, updateInput = true, updateSlider = true) {
   setupComparisonViewerEvents();
 }
 
-function updateSettingsFromUI() {
-  state.settings.mimeType = elements.formatSelect.value;
-  state.settings.filenameSuffix = elements.suffixInput.value;
-  state.settings.maxWidth = parseInt(elements.maxWidthInput.value) || 0;
-  state.settings.maxHeight = parseInt(elements.maxHeightInput.value) || 0;
-  state.settings.maxConcurrency = parseInt(elements.concurrencySelect.value, 10) || 0;
-  state.settings.ultraMemorySaver = elements.ultraSaverToggle.checked;
+function syncLatestSettingsFromDOM() {
+  if (elements.formatSelect) state.settings.mimeType = elements.formatSelect.value;
+  if (elements.suffixInput) state.settings.filenameSuffix = elements.suffixInput.value;
+  if (elements.maxWidthInput) state.settings.maxWidth = parseInt(elements.maxWidthInput.value, 10) || 0;
+  if (elements.maxHeightInput) state.settings.maxHeight = parseInt(elements.maxHeightInput.value, 10) || 0;
+  if (elements.concurrencySelect) state.settings.maxConcurrency = parseInt(elements.concurrencySelect.value, 10) || 0;
+  if (elements.ultraSaverToggle) state.settings.ultraMemorySaver = elements.ultraSaverToggle.checked;
   if (elements.gpuVramToggle) state.settings.gpuVramPipeline = elements.gpuVramToggle.checked;
+
+  const activeSizePill = document.querySelector('.size-pill.active');
+  if (activeSizePill) {
+    const val = activeSizePill.dataset.size;
+    state.settings.targetSizePreset = val;
+    if (val === 'custom') {
+      const num = parseFloat(elements.customSizeVal ? elements.customSizeVal.value : 1) || 1;
+      const unit = elements.customSizeUnit ? elements.customSizeUnit.value : 'mb';
+      state.settings.targetMaxBytes = Math.round(unit === 'mb' ? num * 1024 * 1024 : num * 1024);
+    } else if (val === 'none') {
+      state.settings.targetMaxBytes = 0;
+    } else if (val === '300kb') {
+      state.settings.targetMaxBytes = 300 * 1024;
+    } else if (val === '500kb') {
+      state.settings.targetMaxBytes = 500 * 1024;
+    } else if (val === '1mb') {
+      state.settings.targetMaxBytes = 1000 * 1024;
+    } else if (val === '2mb') {
+      state.settings.targetMaxBytes = 2000 * 1024;
+    } else if (val === '5mb') {
+      state.settings.targetMaxBytes = 5000 * 1024;
+    }
+  }
+}
+
+function updateSettingsFromUI() {
+  syncLatestSettingsFromDOM();
   updateCustomMemUI(1024, true, true);
   updateMemoryMonitorUI();
 }
@@ -873,6 +962,9 @@ function updateMemoryMonitorUI() {
     let vramBytes = 0;
     if (state.gpuResizer && state.gpuResizer.allocatedVRAMBytes) {
       vramBytes = state.gpuResizer.allocatedVRAMBytes;
+    }
+    if (vramBytes === 0 && state.settings.gpuVramPipeline && state.activeJobs > 0) {
+      vramBytes = state.activeJobs * 16 * 1024 * 1024;
     }
     elements.vramUsedVal.textContent = formatBytes(vramBytes);
 
@@ -1033,6 +1125,7 @@ function updateExecButtonsUI() {
   if (!elements.btnStartProcess || !elements.btnStopProcess) return;
 
   const pendingCount = state.jobQueue.length;
+  const processedCount = state.processedItems.length;
   const isRunning = state.isProcessing && !state.isPaused;
 
   if (isRunning) {
@@ -1056,8 +1149,15 @@ function updateExecButtonsUI() {
     elements.btnStopProcess.disabled = true;
     elements.btnStopProcess.classList.remove('pulse');
     elements.btnStopProcess.innerHTML = `<span class="btn-icon-glow">⏹</span> 停止`;
+  } else if (processedCount > 0 && state.activeJobs === 0) {
+    // 全件完了済み: 設定変更後にそのまま再リサイズできるよう「再リサイズ」として活性化
+    elements.btnStartProcess.disabled = false;
+    elements.btnStartProcess.innerHTML = `<span class="btn-icon-glow">🔄</span> 再リサイズ (${processedCount})`;
+    elements.btnStopProcess.disabled = true;
+    elements.btnStopProcess.classList.remove('pulse');
+    elements.btnStopProcess.innerHTML = `<span class="btn-icon-glow">⏹</span> 停止`;
   } else {
-    // キューなし（待機中または全件完了）: 両方無効化
+    // キューなし（待機中）: 両方無効化
     elements.btnStartProcess.disabled = true;
     elements.btnStartProcess.innerHTML = `<span class="btn-icon-glow">▶</span> スタート`;
     elements.btnStopProcess.disabled = true;
@@ -1072,6 +1172,29 @@ function updateExecButtonsUI() {
 function startProcessing() {
   if (state.isProcessing && !state.isPaused) return;
 
+  // スタート押下時点の最新UI設定（解像度・容量・フォーマット等）を確実に同期
+  syncLatestSettingsFromDOM();
+
+  // もし未処理キューが空で、すでに処理完了済みのアイテムがある場合は、最新設定で全件再キューイング
+  if (state.jobQueue.length === 0 && state.processedItems.length > 0 && state.activeJobs === 0) {
+    const filesToReprocess = [];
+    for (const item of state.processedItems) {
+      const f = item.file || state.fileMap.get(item.id);
+      if (f) filesToReprocess.push(f);
+      if (item.outputUrl) URL.revokeObjectURL(item.outputUrl);
+    }
+    if (filesToReprocess.length > 0) {
+      state.processedItems = [];
+      state.totalProcessedCount = 0;
+      state.totalSavedBytes = 0;
+      state.totalProcessTimeMs = 0;
+      state.activeMemoryEstimate = 0;
+      elements.resultsList.innerHTML = '';
+      updateStatsUI();
+      enqueueFiles(filesToReprocess);
+    }
+  }
+
   if (state.jobQueue.length === 0) {
     if (state.activeJobs === 0) {
       showToast('ℹ️ 処理対象の画像がありません。画像をドロップまたは選択してください');
@@ -1082,8 +1205,10 @@ function startProcessing() {
   state.isProcessing = true;
   state.isPaused = false;
 
-  // キューに残っているカードのステータス文言を「キュー待機中...」に更新
+  // キューに残っている全ジョブに最新のUI設定を適用し、ステータス文言を更新
+  const latestOptions = { ...state.settings };
   for (const job of state.jobQueue) {
+    job.options = { ...latestOptions };
     updateCardStatus(job.id, 'pending', 'キュー待機中...');
   }
 
@@ -1197,6 +1322,7 @@ function dispatchNextJobs() {
     return; // 現在の稼働スレッド数が設定上限に達しているため待機
   }
 
+  syncLatestSettingsFromDOM();
   elements.statusBadge.innerHTML = `<span class="pulse-dot"></span> ⚡ SYS: ACTIVE (${state.activeJobs} THREADS)`;
 
   for (let i = 0; i < state.workers.length; i++) {
@@ -1204,6 +1330,7 @@ function dispatchNextJobs() {
 
     if (state.workerStatus[i] === 'idle' && state.jobQueue.length > 0) {
       const job = state.jobQueue.shift();
+      job.options = { ...state.settings };
       state.workerStatus[i] = 'busy';
       state.activeJobs++;
       setWorkerStatus(i, 'busy');
@@ -1430,22 +1557,19 @@ async function saveSingleToFolder(item) {
     await writable.close();
 
     item.savedToDisk = true;
+    item.savedFileHandle = fileHandle;
 
-    // 超省メモリモード: 保存完了直後にBlobをRAMから解放
-    if (state.settings.ultraMemorySaver) {
+    // 超省メモリモード: 保存完了後に大容量Blob参照を整理しつつ、比較プレビュー用URLまたは再読込ハンドルは保持
+    if (state.settings.ultraMemorySaver && state.processedItems.length > 20) {
       if (item.outputSize) {
         state.activeMemoryEstimate = Math.max(0, state.activeMemoryEstimate - item.outputSize);
       }
-      item.blob = null; // メモリ解放
-      if (item.outputUrl && !item.outputUrl.startsWith('data:')) {
-        URL.revokeObjectURL(item.outputUrl);
-      }
-      item.outputUrl = null;
+      item.blob = null;
     }
 
     const saveInfoEl = document.getElementById(`save-info-${item.id}`);
     if (saveInfoEl) {
-      saveInfoEl.innerHTML = `<span style="font-size:0.75rem; color:var(--accent-emerald);">💾 保存済 ${state.settings.ultraMemorySaver ? '(RAM解放済)' : ''}</span>`;
+      saveInfoEl.innerHTML = `<span style="font-size:0.75rem; color:var(--accent-emerald);">💾 保存済</span>`;
     }
     updateMemoryMonitorUI();
     return true;
@@ -1610,6 +1734,7 @@ function clearAllResults() {
 state.tempModalUrls = [];
 
 const zoomState = {
+  mode: 'split', // 'split' | 'actual' | 'diff'
   scale: 1,
   fitScale: 1,
   panX: 0,
@@ -1624,13 +1749,15 @@ const zoomState = {
   startPanX: 0,
   startPanY: 0,
   hasMoved: false,
-  pointerDownTime: 0
+  pointerDownTime: 0,
+  currentItem: null
 };
 
 function applyZoomTransform() {
   const transform = `translate(${zoomState.panX}px, ${zoomState.panY}px) scale(${zoomState.scale})`;
   if (elements.compStageBase) elements.compStageBase.style.transform = transform;
   if (elements.compStageOverlay) elements.compStageOverlay.style.transform = transform;
+  if (elements.compStageDiffInner) elements.compStageDiffInner.style.transform = transform;
 
   if (elements.compWrapper) {
     const isZoomed = zoomState.scale > zoomState.fitScale * 1.05;
@@ -1649,8 +1776,8 @@ function applyZoomTransform() {
       if (elements.btnZoomFit) elements.btnZoomFit.classList.remove('active');
       if (elements.btnZoom100) elements.btnZoom100.classList.add('active');
       if (elements.btnZoom200) elements.btnZoom200.classList.remove('active');
-    } else if (Math.abs(zoomState.scale - 2.0) < 0.05) {
-      elements.compZoomBadge.textContent = '200%';
+    } else if (Math.abs(zoomState.scale - 3.0) < 0.08 || Math.abs(zoomState.scale - 2.0) < 0.05) {
+      elements.compZoomBadge.textContent = `${Math.round(zoomState.scale * 100)}%`;
       if (elements.btnZoomFit) elements.btnZoomFit.classList.remove('active');
       if (elements.btnZoom100) elements.btnZoom100.classList.remove('active');
       if (elements.btnZoom200) elements.btnZoom200.classList.add('active');
@@ -1664,11 +1791,219 @@ function applyZoomTransform() {
 
   // 操作ヒント文言の更新
   if (elements.compZoomHint) {
-    if (zoomState.scale > zoomState.fitScale * 1.05) {
-      elements.compZoomHint.textContent = '🖐️ ドラッグで移動 / クリックで拡大 / ホイールでズーム';
+    if (zoomState.mode === 'actual') {
+      elements.compZoomHint.textContent = '📐 左右で元画像(100%)とリサイズ後(実寸比率)のサイズ差を比較中';
+    } else if (zoomState.mode === 'diff') {
+      elements.compZoomHint.textContent = '🔥 圧縮・リサイズにより変化したピクセルをヒートマップ表示中 (ホイールで拡大)';
+    } else if (zoomState.scale > zoomState.fitScale * 1.05) {
+      elements.compZoomHint.textContent = '🖐️ ドラッグで移動 / 中央バー左右で前後比較 / ホイールでズーム';
     } else {
-      elements.compZoomHint.textContent = '🔍 クリックで拡大 / ホイールでズーム';
+      elements.compZoomHint.textContent = '🔍 画像クリックまたは「🔍 300% 細部」で拡大比較 / 上部タブで「実寸比較」「差分強調」切替';
     }
+  }
+}
+
+/**
+ * 比較表示モードの切り替え ('split' | 'actual' | 'diff')
+ */
+function setCompMode(mode) {
+  if (!['split', 'actual', 'diff'].includes(mode)) mode = 'split';
+  zoomState.mode = mode;
+
+  // タブボタンのアクティブ状態更新
+  const modeBtns = document.querySelectorAll('.btn-comp-mode');
+  modeBtns.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.compMode === mode);
+  });
+
+  if (mode === 'split') {
+    if (elements.compStageBase) elements.compStageBase.style.display = 'block';
+    if (elements.compOverlay) elements.compOverlay.style.display = 'block';
+    if (elements.compDividerLine) elements.compDividerLine.style.display = 'flex';
+    if (elements.compTagOrig) elements.compTagOrig.style.display = 'block';
+    if (elements.compTagOpt) elements.compTagOpt.style.display = 'block';
+    if (elements.compSlider) elements.compSlider.style.visibility = 'visible';
+    if (elements.compZoomControls) elements.compZoomControls.style.opacity = '1';
+    if (elements.compZoomHint) elements.compZoomHint.style.display = 'block';
+    if (elements.compDiffStage) elements.compDiffStage.style.display = 'none';
+    if (elements.compActualStage) elements.compActualStage.style.display = 'none';
+  } else if (mode === 'diff') {
+    if (elements.compStageBase) elements.compStageBase.style.display = 'none';
+    if (elements.compOverlay) elements.compOverlay.style.display = 'none';
+    if (elements.compDividerLine) elements.compDividerLine.style.display = 'none';
+    if (elements.compTagOrig) elements.compTagOrig.style.display = 'none';
+    if (elements.compTagOpt) elements.compTagOpt.style.display = 'none';
+    if (elements.compSlider) elements.compSlider.style.visibility = 'hidden';
+    if (elements.compZoomControls) elements.compZoomControls.style.opacity = '1';
+    if (elements.compZoomHint) elements.compZoomHint.style.display = 'none';
+    if (elements.compDiffStage) elements.compDiffStage.style.display = 'block';
+    if (elements.compActualStage) elements.compActualStage.style.display = 'none';
+    renderDiffHeatmap();
+  } else if (mode === 'actual') {
+    if (elements.compStageBase) elements.compStageBase.style.display = 'none';
+    if (elements.compOverlay) elements.compOverlay.style.display = 'none';
+    if (elements.compDividerLine) elements.compDividerLine.style.display = 'none';
+    if (elements.compTagOrig) elements.compTagOrig.style.display = 'none';
+    if (elements.compTagOpt) elements.compTagOpt.style.display = 'none';
+    if (elements.compSlider) elements.compSlider.style.visibility = 'hidden';
+    if (elements.compZoomControls) elements.compZoomControls.style.opacity = '0.4';
+    if (elements.compZoomHint) elements.compZoomHint.style.display = 'none';
+    if (elements.compDiffStage) elements.compDiffStage.style.display = 'none';
+    if (elements.compActualStage) elements.compActualStage.style.display = 'grid';
+    renderActualSizeView();
+  }
+
+  applyZoomTransform();
+}
+
+/**
+ * モード2: 実寸サイズ・並列比較ビューのレイアウト計算
+ */
+function renderActualSizeView() {
+  const item = zoomState.currentItem;
+  if (!item || !elements.actualOrigBox || !elements.actualOptBox) return;
+
+  const origW = item.origWidth || elements.compImg.naturalWidth || 1920;
+  const origH = item.origHeight || elements.compImg.naturalHeight || 1080;
+  const outW = item.outputWidth || elements.origImg.naturalWidth || origW;
+  const outH = item.outputHeight || elements.origImg.naturalHeight || origH;
+
+  if (elements.actualOrigDims) {
+    elements.actualOrigDims.textContent = `${origW}×${origH} px (${formatBytes(item.origSize || 0)})`;
+  }
+  const scalePctW = Math.round((outW / origW) * 100);
+  const scalePctH = Math.round((outH / origH) * 100);
+  const areaPct = Math.round(((outW * outH) / (origW * origH)) * 100);
+
+  if (elements.actualOptDims) {
+    elements.actualOptDims.textContent = `${outW}×${outH} px (幅${scalePctW}% / 面積${areaPct}%)`;
+  }
+
+  const boxRect = elements.actualOrigBox.getBoundingClientRect();
+  const availW = Math.max(200, (boxRect.width || 460) - 36);
+  const availH = Math.max(180, (boxRect.height || 380) - 36);
+
+  const fitRatio = Math.min(availW / origW, availH / origH);
+  const refDisplayW = Math.max(40, Math.round(origW * fitRatio));
+  const refDisplayH = Math.max(40, Math.round(origH * fitRatio));
+
+  const optDisplayW = Math.max(12, Math.round(outW * fitRatio));
+  const optDisplayH = Math.max(12, Math.round(outH * fitRatio));
+
+  if (elements.actualOrigFrame) {
+    elements.actualOrigFrame.style.width = `${refDisplayW}px`;
+    elements.actualOrigFrame.style.height = `${refDisplayH}px`;
+  }
+  if (elements.actualRefGhost) {
+    elements.actualRefGhost.style.width = `${refDisplayW}px`;
+    elements.actualRefGhost.style.height = `${refDisplayH}px`;
+  }
+  if (elements.actualOptFrame) {
+    elements.actualOptFrame.style.width = `${optDisplayW}px`;
+    elements.actualOptFrame.style.height = `${optDisplayH}px`;
+  }
+  if (elements.actualGhostLabel) {
+    elements.actualGhostLabel.textContent = (outW < origW || outH < origH)
+      ? `元サイズ枠 (${origW}×${origH})`
+      : `元サイズと同じ解像度 (${origW}×${origH})`;
+  }
+  if (elements.actualModeNote) {
+    if (outW === origW && outH === origH) {
+      elements.actualModeNote.innerHTML = `💡 現在は<strong>「元解像度維持 (${origW}×${origH})」</strong>で容量圧縮のみ行われています。縦横サイズも縮小したい場合は設定パネル<strong>「02. ENCODING_MATRIX」</strong>でFHD/HDまたは幅(px)を指定して再実行してください。`;
+    } else {
+      elements.actualModeNote.innerHTML = `✅ 解像度が <strong>${origW}×${origH} ➔ ${outW}×${outH} (面積 ${areaPct}%)</strong> に縮小されました。右側の点線枠が元の大きさ、実線枠がリサイズ後の実際の大きさです。`;
+    }
+  }
+}
+
+/**
+ * モード3: 元画像とリサイズ後画像のピクセル差分ヒートマップ生成
+ */
+function renderDiffHeatmap() {
+  if (!elements.compDiffCanvas || !elements.compImg || !elements.origImg) return;
+  if (!elements.compImg.complete || !elements.origImg.complete) return;
+
+  const origW = zoomState.stageWidth || elements.compImg.naturalWidth || 800;
+  const origH = zoomState.stageHeight || elements.compImg.naturalHeight || 600;
+
+  // 高速計算のため最大解析解像度を1200pxに調整しステージ全体にマッピング
+  const maxSample = 1000;
+  const sampleScale = Math.min(1.0, maxSample / Math.max(origW, origH));
+  const w = Math.max(16, Math.round(origW * sampleScale));
+  const h = Math.max(16, Math.round(origH * sampleScale));
+
+  const c1 = document.createElement('canvas');
+  c1.width = w; c1.height = h;
+  const ctx1 = c1.getContext('2d');
+  ctx1.imageSmoothingEnabled = false;
+  ctx1.drawImage(elements.compImg, 0, 0, w, h);
+
+  const c2 = document.createElement('canvas');
+  c2.width = w; c2.height = h;
+  const ctx2 = c2.getContext('2d');
+  ctx2.imageSmoothingEnabled = false;
+  ctx2.drawImage(elements.origImg, 0, 0, w, h);
+
+  const d1 = ctx1.getImageData(0, 0, w, h).data;
+  const d2 = ctx2.getImageData(0, 0, w, h).data;
+
+  const diffCanvas = elements.compDiffCanvas;
+  diffCanvas.width = w;
+  diffCanvas.height = h;
+  if (elements.compStageDiffInner) {
+    elements.compStageDiffInner.style.width = `${origW}px`;
+    elements.compStageDiffInner.style.height = `${origH}px`;
+  }
+
+  const outCtx = diffCanvas.getContext('2d');
+  const outImg = outCtx.createImageData(w, h);
+  const outData = outImg.data;
+
+  let changedPixels = 0;
+  let totalDiffSum = 0;
+  const totalPixels = w * h;
+
+  for (let i = 0; i < d1.length; i += 4) {
+    const dr = Math.abs(d1[i] - d2[i]);
+    const dg = Math.abs(d1[i + 1] - d2[i + 1]);
+    const db = Math.abs(d1[i + 2] - d2[i + 2]);
+    const maxDelta = Math.max(dr, dg, db);
+    const avgDelta = (dr + dg + db) / 3;
+    totalDiffSum += avgDelta;
+
+    if (maxDelta >= 2) {
+      changedPixels++;
+    }
+
+    // 10倍増幅ヒートマップカラーマッピング
+    const amp = Math.min(255, maxDelta * 10);
+    if (amp < 15) {
+      // 変化ほぼなし: 元画像を薄暗く背景に表示して位置が分かるようにする
+      outData[i] = Math.round(d1[i] * 0.18);
+      outData[i + 1] = Math.round(d1[i + 1] * 0.18);
+      outData[i + 2] = Math.round(d1[i + 2] * 0.22);
+      outData[i + 3] = 255;
+    } else if (amp < 110) {
+      // 小〜中程度の圧縮変化: シアン・ブルー系で発光
+      outData[i] = 0;
+      outData[i + 1] = Math.min(255, Math.round(amp * 2.2));
+      outData[i + 2] = 255;
+      outData[i + 3] = 255;
+    } else {
+      // 大きな変化（エッジ・解像度縮小差・ブロック境界）: イエロー〜マゼンタ・レッドで強く発光
+      outData[i] = 255;
+      outData[i + 1] = Math.max(0, 255 - Math.round((amp - 110) * 1.8));
+      outData[i + 2] = Math.min(255, Math.round((amp - 110) * 1.5));
+      outData[i + 3] = 255;
+    }
+  }
+
+  outCtx.putImageData(outImg, 0, 0);
+
+  if (elements.compDiffStat) {
+    const changedPct = ((changedPixels / totalPixels) * 100).toFixed(1);
+    const meanErr = (totalDiffSum / totalPixels).toFixed(2);
+    elements.compDiffStat.textContent = `変化ピクセル率: ${changedPct}% | 平均色差(ΔRGB): ${meanErr}`;
   }
 }
 
@@ -1751,6 +2086,7 @@ function zoomToPoint(clientX, clientY, targetScale) {
 }
 
 function handleClickToZoom(clientX, clientY) {
+  if (zoomState.mode === 'actual') return;
   // クリック時のズーム段階: Fit -> 2.5倍 (または100%) -> 5倍 -> Fit
   if (zoomState.scale <= zoomState.fitScale * 1.15) {
     const nextScale = Math.max(1.0, zoomState.fitScale * 2.5);
@@ -1769,8 +2105,20 @@ function handleClickToZoom(clientX, clientY) {
 function setupComparisonViewerEvents() {
   if (!elements.compWrapper) return;
 
+  // モード切替タブのイベント登録
+  const modeBtns = document.querySelectorAll('.btn-comp-mode');
+  modeBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setCompMode(btn.dataset.compMode);
+    });
+  });
+
   // 1. ポインター（マウス / タッチ）によるパン操作 & クリック判定
   elements.compWrapper.addEventListener('pointerdown', (e) => {
+    if (zoomState.mode === 'actual') return;
+
     // ディバイダー操作判定
     if (e.target.closest('#comp-divider-handle') || e.target.closest('#comp-divider-line')) {
       zoomState.isDraggingDivider = true;
@@ -1835,6 +2183,7 @@ function setupComparisonViewerEvents() {
 
   // 2. ダブルクリックで 100% 等倍 と Fit をトグル
   elements.compWrapper.addEventListener('dblclick', (e) => {
+    if (zoomState.mode === 'actual') return;
     e.preventDefault();
     if (Math.abs(zoomState.scale - 1.0) < 0.05) {
       zoomToFit();
@@ -1847,6 +2196,7 @@ function setupComparisonViewerEvents() {
 
   // 3. マウスホイールでスムーズズーム (カーソル位置中心)
   elements.compWrapper.addEventListener('wheel', (e) => {
+    if (zoomState.mode === 'actual') return;
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.25 : 0.8;
     zoomToPoint(e.clientX, e.clientY, zoomState.scale * factor);
@@ -1863,31 +2213,36 @@ function setupComparisonViewerEvents() {
   if (elements.btnZoomIn) {
     elements.btnZoomIn.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (zoomState.mode === 'actual') setCompMode('split');
       zoomToCenter(zoomState.scale * 1.35);
     });
   }
   if (elements.btnZoomOut) {
     elements.btnZoomOut.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (zoomState.mode === 'actual') setCompMode('split');
       zoomToCenter(zoomState.scale / 1.35);
     });
   }
   if (elements.btnZoomFit) {
     elements.btnZoomFit.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (zoomState.mode === 'actual') setCompMode('split');
       zoomToFit();
     });
   }
   if (elements.btnZoom100) {
     elements.btnZoom100.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (zoomState.mode === 'actual') setCompMode('split');
       zoomTo100();
     });
   }
   if (elements.btnZoom200) {
     elements.btnZoom200.addEventListener('click', (e) => {
       e.stopPropagation();
-      zoomToCenter(2.0);
+      if (zoomState.mode === 'actual') setCompMode('split');
+      zoomToCenter(3.0);
     });
   }
 
@@ -1913,7 +2268,9 @@ function setupComparisonViewerEvents() {
   // 7. ウィンドウリサイズ時の自動アライメント
   window.addEventListener('resize', () => {
     if (elements.modalOverlay && elements.modalOverlay.classList.contains('active')) {
-      if (Math.abs(zoomState.scale - zoomState.fitScale) < 0.05) {
+      if (zoomState.mode === 'actual') {
+        renderActualSizeView();
+      } else if (Math.abs(zoomState.scale - zoomState.fitScale) < 0.05) {
         zoomToFit();
       } else {
         clampPan();
@@ -1923,16 +2280,17 @@ function setupComparisonViewerEvents() {
   });
 }
 
-function openComparisonModal(id) {
+async function openComparisonModal(id) {
   const item = state.processedItems.find(x => x.id === id);
   if (!item) {
     console.warn('Comparison item not found for id:', id);
     return;
   }
 
+  zoomState.currentItem = item;
   const origFile = item.file || (state.fileMap ? state.fileMap.get(id) : null);
 
-  elements.modalTitle.textContent = `画質比較: ${item.origName || '画像'}`;
+  elements.modalTitle.textContent = `画質・サイズ比較: ${item.origName || '画像'}`;
 
   // 元画像の一時URLを生成
   let tempOrigUrl = '';
@@ -1945,7 +2303,7 @@ function openComparisonModal(id) {
     }
   }
 
-  // リサイズ後画像の一時URL
+  // リサイズ後画像の一時URL (ディスク保存済みの場合はファイルハンドルからも復元可能)
   let tempOutUrl = item.outputUrl || '';
   if (!tempOutUrl && (item.blob instanceof Blob)) {
     try {
@@ -1955,39 +2313,83 @@ function openComparisonModal(id) {
       console.warn('Failed to create output URL:', e);
     }
   }
+  if (!tempOutUrl && item.savedFileHandle) {
+    try {
+      const savedFile = await item.savedFileHandle.getFile();
+      tempOutUrl = URL.createObjectURL(savedFile);
+      state.tempModalUrls.push(tempOutUrl);
+    } catch (e) {
+      console.warn('Failed to read saved file handle for preview:', e);
+    }
+  }
 
-  if (!tempOrigUrl && tempOutUrl) tempOrigUrl = tempOutUrl;
-  if (!tempOutUrl && tempOrigUrl) tempOutUrl = tempOrigUrl;
+  elements.origImg.src = tempOutUrl;  // ベース(右側): リサイズ後
+  elements.compImg.src = tempOrigUrl; // オーバーレイ(左側): 元画像
+  if (elements.actualOrigImg) elements.actualOrigImg.src = tempOrigUrl;
+  if (elements.actualOptImg) elements.actualOptImg.src = tempOutUrl;
 
-  elements.origImg.src = tempOutUrl;  // ベース: リサイズ後
-  elements.compImg.src = tempOrigUrl;  // オーバーレイ: 元画像
+  const origW = item.origWidth || 1920;
+  const origH = item.origHeight || 1080;
+  const outW = item.outputWidth || origW;
+  const outH = item.outputHeight || origH;
+  const redText = item.reductionPercent !== undefined
+    ? (item.reductionPercent >= 0 ? `-${item.reductionPercent}%` : `+${Math.abs(item.reductionPercent)}%`)
+    : '';
+  const fmtName = (item.mimeType || 'image/webp').replace('image/', '').toUpperCase();
+  const qPct = item.quality ? `${Math.round(item.quality * 100)}%` : '---';
+
+  // 上部サマリーバー更新
+  if (elements.summaryOrigText) {
+    elements.summaryOrigText.textContent = `${origW}×${origH} px | ${formatBytes(item.origSize || 0)}`;
+  }
+  if (elements.summaryOptText) {
+    elements.summaryOptText.textContent = `${outW}×${outH} px | ${formatBytes(item.outputSize || 0)} (${fmtName} 品質:${qPct})`;
+  }
+  if (elements.summaryDiffPill) {
+    const dimScale = Math.round((outW / origW) * 100);
+    const dimLabel = (outW !== origW || outH !== origH) ? `寸法 ${dimScale}% に縮小` : `元解像度維持(100%)`;
+    elements.summaryDiffPill.textContent = `容量 ${redText} / ${dimLabel}`;
+  }
+
+  // 浮動タグに実際の解像度とファイルサイズを明記
+  if (elements.compTagOrig) {
+    elements.compTagOrig.textContent = `◄ ORIGINAL (元画像): ${origW}×${origH} | ${formatBytes(item.origSize || 0)}`;
+  }
+  if (elements.compTagOpt) {
+    elements.compTagOpt.textContent = `OPTIMIZED (リサイズ後): ${outW}×${outH} | ${formatBytes(item.outputSize || 0)} (${redText}) ►`;
+  }
 
   elements.modalOrigInfo.innerHTML = `
-    <strong>元画像 (ORIGINAL):</strong> ${item.origWidth || '---'}×${item.origHeight || '---'} | ${formatBytes(item.origSize || 0)}
+    <strong>元画像 (ORIGINAL):</strong> ${origW}×${origH} px | ${formatBytes(item.origSize || 0)}
   `;
   elements.modalCompInfo.innerHTML = `
-    <strong>リサイズ後 (OPTIMIZED):</strong> ${item.outputWidth || '---'}×${item.outputHeight || '---'} | ${formatBytes(item.outputSize || 0)} (${item.reductionPercent !== undefined ? (item.reductionPercent >= 0 ? '-' + item.reductionPercent + '%' : '+' + Math.abs(item.reductionPercent) + '%') : ''})
+    <strong>リサイズ後 (OPTIMIZED):</strong> ${outW}×${outH} px | ${formatBytes(item.outputSize || 0)} (${redText} / 品質 ${qPct})
   `;
 
-  // ステージ寸法を決定してフィット表示
+  // ステージ寸法を決定して表示
   const setupDimensions = () => {
-    const origW = item.origWidth || elements.compImg.naturalWidth || elements.origImg.naturalWidth || 1920;
-    const origH = item.origHeight || elements.compImg.naturalHeight || elements.origImg.naturalHeight || 1080;
+    const w = item.origWidth || elements.compImg.naturalWidth || elements.origImg.naturalWidth || 1920;
+    const h = item.origHeight || elements.compImg.naturalHeight || elements.origImg.naturalHeight || 1080;
 
-    zoomState.stageWidth = origW;
-    zoomState.stageHeight = origH;
+    zoomState.stageWidth = w;
+    zoomState.stageHeight = h;
 
     if (elements.compStageBase) {
-      elements.compStageBase.style.width = `${origW}px`;
-      elements.compStageBase.style.height = `${origH}px`;
+      elements.compStageBase.style.width = `${w}px`;
+      elements.compStageBase.style.height = `${h}px`;
     }
     if (elements.compStageOverlay) {
-      elements.compStageOverlay.style.width = `${origW}px`;
-      elements.compStageOverlay.style.height = `${origH}px`;
+      elements.compStageOverlay.style.width = `${w}px`;
+      elements.compStageOverlay.style.height = `${h}px`;
+    }
+    if (elements.compStageDiffInner) {
+      elements.compStageDiffInner.style.width = `${w}px`;
+      elements.compStageDiffInner.style.height = `${h}px`;
     }
 
     setSplitPercent(50);
     zoomToFit();
+    setCompMode(zoomState.mode || 'split');
   };
 
   let loadedCount = 0;
@@ -2009,8 +2411,11 @@ function closeModal() {
   elements.modalOverlay.classList.remove('active');
   elements.origImg.src = '';
   elements.compImg.src = '';
+  if (elements.actualOrigImg) elements.actualOrigImg.src = '';
+  if (elements.actualOptImg) elements.actualOptImg.src = '';
   if (elements.compStageBase) elements.compStageBase.style.transform = '';
   if (elements.compStageOverlay) elements.compStageOverlay.style.transform = '';
+  if (elements.compStageDiffInner) elements.compStageDiffInner.style.transform = '';
 
   if (state.tempModalUrls && state.tempModalUrls.length > 0) {
     state.tempModalUrls.forEach(url => {
@@ -2097,4 +2502,5 @@ window.zoomTo100 = zoomTo100;
 window.zoomToPoint = zoomToPoint;
 window.zoomState = zoomState;
 window.setSplitPercent = setSplitPercent;
+window.setCompMode = setCompMode;
 window.setTheme = setTheme;

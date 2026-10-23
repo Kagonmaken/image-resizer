@@ -368,33 +368,103 @@
         <button type="button" class="btn-icon" id="modal-close" style="width: 32px; height: 32px;" title="閉じる">✕</button>
       </div>
       <div class="modal-body">
-        <!-- ズームコントロールツールバー -->
+        <!-- 前後比較サマリーバー (解像度・容量・品質の変化を一目で表示) -->
+        <div class="comp-summary-banner" id="comp-summary-banner">
+          <div class="comp-summary-item orig">
+            <span class="comp-summary-badge orig-badge">BEFORE (元画像)</span>
+            <span class="comp-summary-val" id="summary-orig-text">---</span>
+          </div>
+          <div class="comp-summary-arrow">➔</div>
+          <div class="comp-summary-item opt">
+            <span class="comp-summary-badge opt-badge">AFTER (リサイズ後)</span>
+            <span class="comp-summary-val" id="summary-opt-text">---</span>
+          </div>
+          <div class="comp-summary-diff" id="summary-diff-pill">---</div>
+        </div>
+
+        <!-- 比較モード切替 & ズームコントロールツールバー -->
         <div class="comp-toolbar">
-          <div class="comp-toolbar-left">
+          <div class="comp-mode-tabs" role="tablist" aria-label="比較モード切替">
+            <button type="button" class="btn-comp-mode active" data-comp-mode="split" id="btn-mode-split" title="左右スライダーで重ねて画質・ピクセルを比較">
+              🔀 スライダー重ね比較
+            </button>
+            <button type="button" class="btn-comp-mode" data-comp-mode="actual" id="btn-mode-actual" title="元画像とリサイズ後画像を並べて実際のサイズ縮小比率を比較">
+              📐 実寸サイズ・並列比較
+            </button>
+            <button type="button" class="btn-comp-mode" data-comp-mode="diff" id="btn-mode-diff" title="圧縮・リサイズによって変化したピクセルをヒートマップで強調可視化">
+              🔥 差分ヒートマップ (変化箇所)
+            </button>
+          </div>
+
+          <div class="comp-toolbar-left" id="comp-zoom-controls">
             <button type="button" class="btn-zoom-ctrl" id="btn-zoom-out" title="縮小 (マウスホイール下)">🔍−</button>
             <button type="button" class="btn-zoom-ctrl" id="btn-zoom-in" title="拡大 (クリックまたはホイール上)">🔍＋</button>
-            <button type="button" class="btn-zoom-ctrl active" id="btn-zoom-fit" title="画面サイズに合わせて全体表示">↔️ 全体表示 (FIT)</button>
-            <button type="button" class="btn-zoom-ctrl" id="btn-zoom-100" title="1:1 ピクセル等倍表示 (細部確認)">1:1 等倍 (100%)</button>
-            <button type="button" class="btn-zoom-ctrl" id="btn-zoom-200" title="200% 拡大表示">200%</button>
+            <button type="button" class="btn-zoom-ctrl active" id="btn-zoom-fit" title="画面サイズに合わせて全体表示">↔️ 全体 (FIT)</button>
+            <button type="button" class="btn-zoom-ctrl" id="btn-zoom-100" title="1:1 ピクセル等倍表示 (細部確認)">1:1 等倍</button>
+            <button type="button" class="btn-zoom-ctrl" id="btn-zoom-200" title="300% ピクセル拡大比較 (圧縮・解像度差を鮮明表示)">🔍 300% 細部</button>
             <span class="comp-zoom-badge" id="comp-zoom-badge">FIT</span>
-          </div>
-          <div class="comp-toolbar-right">
-            <span class="comp-toolbar-guide">💡 画像クリックで拡大 / ドラッグで視点移動 / ホイールでズーム</span>
           </div>
         </div>
 
-        <!-- 比較ビューポート (拡大・パン・分割対応) -->
+        <!-- 比較ビューポート (拡大・パン・分割・実寸・ヒートマップ対応) -->
         <div class="comparison-wrapper" id="comparison-wrapper">
-          <!-- ベースステージ: リサイズ後画像 (OPTIMIZED) -->
+          <!-- [モード1: スライダー重ね比較] ベースステージ: リサイズ後画像 (OPTIMIZED) -->
           <div class="comp-stage comp-stage-base" id="comp-stage-base">
             <img id="orig-img" src="" alt="Resized" draggable="false">
           </div>
 
-          <!-- オーバーレイステージ: 元画像 (ORIGINAL) クリップコンテナ -->
+          <!-- [モード1: スライダー重ね比較] オーバーレイステージ: 元画像 (ORIGINAL) クリップコンテナ -->
           <div class="comparison-overlay-img" id="comp-overlay">
             <div class="comp-stage comp-stage-overlay" id="comp-stage-overlay">
               <img id="comp-img" src="" alt="Original" draggable="false">
             </div>
+          </div>
+
+          <!-- [モード3: 差分ヒートマップ] ピクセル変化可視化ステージ -->
+          <div class="comp-diff-stage" id="comp-diff-stage" style="display: none;">
+            <div class="comp-stage comp-stage-diff" id="comp-stage-diff-inner">
+              <canvas id="comp-diff-canvas"></canvas>
+            </div>
+            <div class="comp-diff-legend" id="comp-diff-legend">
+              <span>🔥 ピクセル差分強調 (×10倍増幅):</span>
+              <span class="legend-chip unchanged">■ 変化なし(黒)</span>
+              <span class="legend-chip minor">■ 微小圧縮(青/水色)</span>
+              <span class="legend-chip major">■ エッジ/解像度変化(黄/赤)</span>
+              <strong id="comp-diff-stat" style="margin-left: 8px; color: var(--cyber-cyan);">解析中...</strong>
+            </div>
+          </div>
+
+          <!-- [モード2: 実寸サイズ・並列比較] 左右2画面比較ビュー -->
+          <div class="comp-actual-stage" id="comp-actual-stage" style="display: none;">
+            <div class="actual-pane orig-pane">
+              <div class="actual-pane-header">
+                <span class="pane-tag orig">BEFORE: 元画像 (100%基準)</span>
+                <span class="pane-dims" id="actual-orig-dims">---</span>
+              </div>
+              <div class="actual-canvas-box" id="actual-orig-box">
+                <div class="actual-img-frame orig-frame" id="actual-orig-frame">
+                  <img id="actual-orig-img" src="" alt="Original Size" draggable="false">
+                </div>
+              </div>
+            </div>
+
+            <div class="actual-pane opt-pane">
+              <div class="actual-pane-header">
+                <span class="pane-tag opt">AFTER: リサイズ後 (実寸比率)</span>
+                <span class="pane-dims" id="actual-opt-dims">---</span>
+              </div>
+              <div class="actual-canvas-box" id="actual-opt-box">
+                <!-- 元画像の100%サイズを示す点線ガイド枠 -->
+                <div class="actual-reference-ghost" id="actual-ref-ghost">
+                  <span class="ghost-label" id="actual-ghost-label">元サイズ枠 (100%)</span>
+                  <!-- リサイズ後の実際の縮小比率で描画される画像 -->
+                  <div class="actual-img-frame opt-frame" id="actual-opt-frame">
+                    <img id="actual-opt-img" src="" alt="Resized Actual Size" draggable="false">
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="actual-mode-note" id="actual-mode-note"></div>
           </div>
 
           <!-- 分割ディバイダーライン & ドラッグハンドル -->
@@ -405,9 +475,9 @@
           </div>
 
           <!-- 浮動ラベル -->
-          <div class="comp-floating-tag tag-orig">◄ ORIGINAL (元画像)</div>
-          <div class="comp-floating-tag tag-opt">OPTIMIZED (リサイズ後) ►</div>
-          <div class="comp-zoom-hint" id="comp-zoom-hint">🔍 クリックで拡大</div>
+          <div class="comp-floating-tag tag-orig" id="comp-tag-orig">◄ ORIGINAL (元画像)</div>
+          <div class="comp-floating-tag tag-opt" id="comp-tag-opt">OPTIMIZED (リサイズ後) ►</div>
+          <div class="comp-zoom-hint" id="comp-zoom-hint">🔍 クリックで拡大 / ホイールでズーム / ドラッグで移動</div>
         </div>
 
         <input type="range" class="comparison-slider-bar" id="comp-slider" min="0" max="100" value="50">
